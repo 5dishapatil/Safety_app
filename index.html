@@ -3,11 +3,18 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Eldora - Safety Zone</title>
-  <!-- Tailwind CSS CDN -->
+  <title>Safety Zone App</title>
+  <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Leaflet CSS -->
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-u0BAlqb6NH3ZokP1X4Ue6T+4S9sp3l1VX+0V6zYHEtU="
+    crossorigin=""
+  />
   <style>
-    /* Custom button styles */
+    /* Basic styling for contact buttons */
     .contact-common {
       display: inline-flex;
       flex-direction: column;
@@ -25,6 +32,11 @@
     .contact-common:hover {
       background-color: #3b82f6;
     }
+    /* Map container must have a set height */
+    #map {
+      width: 100%;
+      height: 400px;
+    }
   </style>
 </head>
 <body class="flex flex-col min-h-screen font-sans bg-gradient-to-br from-white to-purple-400 text-gray-800">
@@ -32,17 +44,21 @@
   <!-- Header -->
   <div class="header text-center w-full bg-gradient-to-r from-blue-400 to-purple-500 text-white p-6 shadow-lg">
     <div class="header-title inline-flex items-center justify-center gap-2">
-      <img src="https://cdn-icons-png.flaticon.com/512/0/619.png" alt="Location Icon" class="w-6 h-6" />
-      <h1 class="text-black text-3xl m-0">Eldora</h1>
+      <!-- Location icon beside Eldora -->
+      <img
+        src="https://cdn-icons-png.flaticon.com/512/0/619.png"
+        alt="Location Icon"
+        class="w-6 h-6"
+      />
+      <h1 class="text-black text-3xl m-0">Eldora - Safety Zone</h1>
     </div>
   </div>
 
   <!-- Location Section -->
   <div class="location-section text-center p-4 pb-0">
-    <h2 class="text-4xl mb-4">Current Location</h2>
-    <div class="map-container max-w-[600px] mx-auto border-2 border-gray-300 rounded-md overflow-hidden">
-      <p class="text-center">Fetching location...</p>
-    </div>
+    <h2 class="text-4xl mb-4">Current Location & Geofence</h2>
+    <!-- The map container -->
+    <div id="map" class="mx-auto border-2 border-gray-300 rounded-md overflow-hidden"></div>
   </div>
 
   <!-- Status Text -->
@@ -50,28 +66,43 @@
     Loading status...
   </div>
 
-  <!-- Emergency Contacts -->
+  <!-- Bottom Blue Box -->
   <div class="bottom-container bg-neutral-200 p-5 mt-auto text-center">
     <div class="contacts flex flex-wrap justify-center gap-5">
+      <!-- Daughter -->
       <a href="tel:998334567" class="contact-item contact-common">
         <div class="contact-text flex items-center gap-1">
-          <img src="https://img.icons8.com/ios-filled/20/ffffff/phone.png" alt="Call Icon" class="w-5 h-5"/>
+          <img
+            src="https://img.icons8.com/ios-filled/20/ffffff/phone.png"
+            alt="Call Icon"
+            class="w-5 h-5"
+          />
           <span>Daughter</span>
         </div>
         <span>998334567</span>
       </a>
 
+      <!-- Caregiver -->
       <a href="tel:912345678" class="contact-item contact-common">
         <div class="contact-text flex items-center gap-1">
-          <img src="https://img.icons8.com/ios-filled/20/ffffff/phone.png" alt="Call Icon" class="w-5 h-5"/>
+          <img
+            src="https://img.icons8.com/ios-filled/20/ffffff/phone.png"
+            alt="Call Icon"
+            class="w-5 h-5"
+          />
           <span>Caregiver</span>
         </div>
         <span>912345678</span>
       </a>
 
+      <!-- Son -->
       <a href="tel:876453219" class="contact-item contact-common">
         <div class="contact-text flex items-center gap-1">
-          <img src="https://img.icons8.com/ios-filled/20/ffffff/phone.png" alt="Call Icon" class="w-5 h-5"/>
+          <img
+            src="https://img.icons8.com/ios-filled/20/ffffff/phone.png"
+            alt="Call Icon"
+            class="w-5 h-5"
+          />
           <span>Son</span>
         </div>
         <span>876453219</span>
@@ -79,42 +110,158 @@
     </div>
   </div>
 
-  <!-- Location Tracking Script -->
+  <!-- Leaflet JS -->
+  <script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-v6QN5pY4sRk5k8NGUnBqq7+72R6bn7UPh1f2R+Z7tXQ="
+    crossorigin=""
+  ></script>
+  <!-- Turf.js for point-in-polygon checking -->
+  <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
+
   <script>
-    function updateLocation() {
-      if ("geolocation" in navigator) {
+    let map, userMarker, safeZonePolygon;
+    const boundaryPoints = []; // Will store user-clicked points (lng, lat)
+    const minBoundaryPoints = 4; // Need at least 4 points to form a polygon
+
+    function initMap() {
+      // Default location if geolocation fails
+      const defaultCoords = [37.7749, -122.4194]; // San Francisco
+
+      // Initialize Leaflet map
+      map = L.map('map').setView(defaultCoords, 15);
+
+      // Add OSM tile layer
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap contributors'
+      }).addTo(map);
+
+      // Try to get user's location
+      if (navigator.geolocation) {
         navigator.geolocation.getCurrentPosition(
           (position) => {
             const lat = position.coords.latitude;
-            const lon = position.coords.longitude;
-            const statusElement = document.getElementById("status");
+            const lng = position.coords.longitude;
+            map.setView([lat, lng], 15);
 
-            statusElement.textContent = `Current Location: ${lat}, ${lon}`;
-            statusElement.style.color = "blue";
+            // Place initial user marker
+            userMarker = L.marker([lat, lng]).addTo(map)
+              .bindPopup("Your Location").openPopup();
+          },
+          () => {
+            console.log("Geolocation not allowed or not available.");
+          }
+        );
+      } else {
+        console.log("Geolocation is not supported by this browser.");
+      }
 
-            // Update Google Maps dynamically
-            const mapContainer = document.querySelector(".map-container");
-            mapContainer.innerHTML = `<iframe
-                width="100%"
-                height="300"
-                style="border:0"
-                loading="lazy"
-                allowfullscreen
-                src="https://www.google.com/maps?q=${lat},${lon}&z=15&output=embed">
-            </iframe>`;
+      // Listen for map clicks to add boundary points
+      map.on('click', (e) => {
+        addBoundaryPoint(e.latlng);
+      });
+
+      // Continuously watch user position
+      watchUserPosition();
+    }
+
+    // Add a boundary point (marker + store coords)
+    function addBoundaryPoint(latlng) {
+      // Add green marker for boundary point
+      L.marker(latlng, {
+        icon: L.icon({
+          iconUrl: "https://maps.google.com/mapfiles/ms/icons/green-dot.png",
+          iconSize: [32, 32],
+          iconAnchor: [16, 32]
+        })
+      }).addTo(map);
+
+      // Store in [lng, lat] format for Turf.js
+      boundaryPoints.push([latlng.lng, latlng.lat]);
+
+      // If we have enough points, draw/update the polygon
+      if (boundaryPoints.length >= minBoundaryPoints) {
+        updatePolygon();
+      }
+    }
+
+    // Create or update the polygon from boundaryPoints
+    function updatePolygon() {
+      // Remove old polygon if it exists
+      if (safeZonePolygon) {
+        map.removeLayer(safeZonePolygon);
+      }
+
+      // Convert boundaryPoints to Leaflet-friendly format [lat, lng]
+      const latlngs = boundaryPoints.map(coord => [coord[1], coord[0]]);
+
+      // Draw polygon in red
+      safeZonePolygon = L.polygon(latlngs, {
+        color: 'red',
+        fillColor: 'red',
+        fillOpacity: 0.2
+      }).addTo(map);
+    }
+
+    // Continuously watch user location
+    function watchUserPosition() {
+      if (navigator.geolocation) {
+        navigator.geolocation.watchPosition(
+          (position) => {
+            const lat = position.coords.latitude;
+            const lng = position.coords.longitude;
+            const currentLatLng = [lat, lng];
+
+            // Update user marker
+            if (userMarker) {
+              userMarker.setLatLng(currentLatLng);
+            } else {
+              userMarker = L.marker(currentLatLng).addTo(map);
+            }
+
+            // If polygon exists, check if inside
+            if (safeZonePolygon) {
+              const pt = turf.point([lng, lat]); // [lng, lat] for Turf
+              const polygon = turf.polygon([boundaryPoints]); // boundaryPoints is [[lng, lat], ...]
+
+              const inside = turf.booleanPointInPolygon(pt, polygon);
+              const statusEl = document.getElementById("status");
+
+              if (inside) {
+                statusEl.textContent = "In Safe-Zone";
+                statusEl.style.color = "green";
+              } else {
+                statusEl.textContent = "Out of Safe-Zone";
+                statusEl.style.color = "red";
+                triggerEmergencySOS();
+              }
+            }
           },
           (error) => {
+            console.log("Error watching position:", error);
             document.getElementById("status").textContent = "Location access denied!";
             document.getElementById("status").style.color = "red";
-          }
+          },
+          { enableHighAccuracy: true, maximumAge: 10000 }
         );
       } else {
         document.getElementById("status").textContent = "Geolocation not supported!";
       }
     }
 
-    window.addEventListener("DOMContentLoaded", updateLocation);
-  </script>
+    // Emergency SOS trigger
+    function triggerEmergencySOS() {
+      // Prevent multiple alerts
+      if (!window.emergencyTriggered) {
+        window.emergencyTriggered = true;
+        alert("Emergency SOS! You have left the safe zone. Calling emergency contacts...");
+        // Here, you could programmatically dial phone numbers or send an SMS.
+        // e.g. window.location.href = "tel:998334567";
+      }
+    }
 
+    // Initialize the map on page load
+    window.addEventListener("DOMContentLoaded", initMap);
+  </script>
 </body>
 </html>
