@@ -59,7 +59,7 @@
       1) Click <em>“Start Setting Geofence”</em>.<br/>
       2) Tap the map to drop <span class="font-bold">green markers</span>.<br/>
       3) Once you have <span class="font-bold">4 or more</span> points, click <em>“Finish Geofence”</em>.<br/>
-      4) If you leave the safe zone, an <span class="font-bold text-red-600">Emergency SOS alert</span> is triggered!
+      4) If you leave the safe zone, an <span class="font-bold text-red-600">Emergency SOS alert</span> is triggered, and emergency contacts are notified!
     </p>
     <button
       id="startGeofenceBtn"
@@ -140,6 +140,7 @@
     let map, userMarker, safeZonePolygon;
     let isSettingGeofence = false; // Controls whether clicks add geofence points
     const boundaryPoints = []; // store [lng, lat]
+    const boundaryMarkers = []; // store references to green markers
     const minBoundaryPoints = 4; // Need 4 to form a polygon
 
     // Initialize the map
@@ -184,7 +185,7 @@
     // Add a boundary point
     function addBoundaryPoint(latlng) {
       // Show a green marker
-      L.marker(latlng, {
+      const marker = L.marker(latlng, {
         icon: L.icon({
           iconUrl: "https://maps.google.com/mapfiles/ms/icons/green-dot.png",
           iconSize: [32, 32],
@@ -192,7 +193,8 @@
         })
       }).addTo(map);
 
-      boundaryPoints.push([latlng.lng, latlng.lat]);
+      boundaryMarkers.push(marker);          // Keep track of this marker
+      boundaryPoints.push([latlng.lng, latlng.lat]); // Store coords
 
       // If we have 1 or more points, allow finishing or clearing
       document.getElementById('finishGeofenceBtn').disabled = boundaryPoints.length < minBoundaryPoints;
@@ -222,17 +224,29 @@
       document.getElementById('finishGeofenceBtn').disabled = true;
     }
 
-    // Clear all boundary points and polygon
+    // Clear all boundary points, polygon, and green markers
     function clearGeofence() {
-      boundaryPoints.length = 0; // empty the array
+      // Remove polygon
       if (safeZonePolygon) {
         map.removeLayer(safeZonePolygon);
         safeZonePolygon = null;
       }
+
+      // Remove each green marker from the map
+      boundaryMarkers.forEach(marker => {
+        map.removeLayer(marker);
+      });
+      boundaryMarkers.length = 0; // empty the array
+
+      // Clear boundary coords
+      boundaryPoints.length = 0;
+
+      // Reset
       isSettingGeofence = false;
       document.getElementById('startGeofenceBtn').disabled = false;
       document.getElementById('finishGeofenceBtn').disabled = true;
       document.getElementById('clearGeofenceBtn').disabled = true;
+      window.emergencyTriggered = false; // reset so we can trigger SOS again if needed
     }
 
     // Continuously watch user location
@@ -283,11 +297,17 @@
 
     // Trigger SOS alert if user goes outside
     function triggerEmergencySOS() {
+      // Prevent multiple alerts
       if (!window.emergencyTriggered) {
         window.emergencyTriggered = true;
-        alert("Emergency SOS! You have left the safe zone. Calling emergency contacts...");
-        // Optionally dial a number:
-        // window.location.href = "tel:998334567";
+        alert("Emergency SOS! You have left the safe zone.\nNotifying emergency contacts...");
+
+        // Simulate sending alert to emergency contacts
+        // In a real app, you could:
+        // 1) Send an SMS via an API (like Twilio)
+        // 2) Make a phone call
+        // 3) Show a push notification
+        console.log("Sending alert to Daughter, Caregiver, Son...");
       }
     }
 
