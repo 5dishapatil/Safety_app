@@ -42,7 +42,7 @@
 
   <!-- Header -->
   <div class="header text-center w-full bg-gradient-to-r from-blue-400 to-purple-500 text-white p-6 shadow-lg">
-    <div class="header-title inline-flex items-center justify-center gap-2">
+    <div class="header-title inline-flex items-center justify-center gap=2">
       <img
         src="https://cdn-icons-png.flaticon.com/512/0/619.png"
         alt="Location Icon"
@@ -137,13 +137,14 @@
   <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
 
   <script>
-    let map, userMarker, safeZonePolygon;
-    let isSettingGeofence = false; // Controls whether clicks add geofence points
-    const boundaryPoints = []; // store [lng, lat]
-    const boundaryMarkers = []; // store references to green markers
-    const minBoundaryPoints = 4; // Need 4 to form a polygon
+    let map, userMarker;
+    let safeZonePolygon = null;      // Leaflet polygon layer
+    let safeZoneHull = null;         // Turf.js polygon geometry (for inside checks)
+    let isSettingGeofence = false;   // Are we currently adding points?
+    const boundaryPoints = [];       // [ [lng, lat], ... ]
+    const boundaryMarkers = [];      // references to green markers
+    const minBoundaryPoints = 4;     // Need 4 to form a polygon
 
-    // Initialize the map
     function initMap() {
       // Default coords if geolocation fails
       const defaultCoords = [37.7749, -122.4194]; // SF
@@ -155,7 +156,7 @@
         attribution: '&copy; OpenStreetMap contributors'
       }).addTo(map);
 
-      // Attempt to get user location once
+      // Try to get user location
       if (navigator.geolocation) {
         navigator.geolocation.getCurrentPosition(
           (pos) => {
@@ -165,24 +166,20 @@
             userMarker = L.marker([lat, lng]).addTo(map)
               .bindPopup("Your Location").openPopup();
           },
-          () => {
-            console.log("Geolocation not allowed or not available.");
-          }
+          () => console.log("Geolocation not allowed or unavailable.")
         );
       }
 
-      // Listen for map clicks, but only add points if isSettingGeofence = true
+      // If user is in "Set Geofence" mode, each map click adds a point
       map.on('click', (e) => {
         if (isSettingGeofence) {
           addBoundaryPoint(e.latlng);
         }
       });
 
-      // Continuously watch user location for safe-zone checks
       watchUserPosition();
     }
 
-    // Add a boundary point
     function addBoundaryPoint(latlng) {
       // Show a green marker
       const marker = L.marker(latlng, {
@@ -193,26 +190,43 @@
         })
       }).addTo(map);
 
-      boundaryMarkers.push(marker);          // Keep track of this marker
-      boundaryPoints.push([latlng.lng, latlng.lat]); // Store coords
+      boundaryMarkers.push(marker);
+      boundaryPoints.push([latlng.lng, latlng.lat]);
 
       // If we have 1 or more points, allow finishing or clearing
       document.getElementById('finishGeofenceBtn').disabled = boundaryPoints.length < minBoundaryPoints;
       document.getElementById('clearGeofenceBtn').disabled = boundaryPoints.length === 0;
     }
 
-    // Draw the polygon once the user clicks "Finish Geofence"
     function finishGeofence() {
-      // Remove old polygon if any
+      // Remove old polygon layer if it exists
       if (safeZonePolygon) {
         map.removeLayer(safeZonePolygon);
+        safeZonePolygon = null;
+      }
+      safeZoneHull = null;
+
+      // Build a Turf.js feature collection from boundaryPoints
+      const pointFeatures = boundaryPoints.map(coords => turf.point(coords));
+      const fc = turf.featureCollection(pointFeatures);
+
+      // Create a convex hull polygon from those points
+      const hull = turf.convex(fc);
+
+      if (!hull) {
+        alert("Could not form a polygon. Make sure you have at least 4 points.");
+        return;
       }
 
-      // Convert boundaryPoints to Leaflet latlngs: [lat, lng]
-      const latlngs = boundaryPoints.map(coord => [coord[1], coord[0]]);
+      // Save hull geometry for later "inside polygon" checks
+      safeZoneHull = hull; // We'll use this in watchPosition
 
-      // Create a polygon
-      safeZonePolygon = L.polygon(latlngs, {
+      // Convert hull's coordinates to Leaflet [lat, lng] format
+      // hull.geometry.coordinates is [ [ [lng, lat], [lng, lat], ... ] ]
+      const hullCoords = hull.geometry.coordinates[0].map(([lng, lat]) => [lat, lng]);
+
+      // Draw the polygon in Leaflet
+      safeZonePolygon = L.polygon(hullCoords, {
         color: 'red',
         fillColor: 'red',
         fillOpacity: 0.2
@@ -224,21 +238,19 @@
       document.getElementById('finishGeofenceBtn').disabled = true;
     }
 
-    // Clear all boundary points, polygon, and green markers
     function clearGeofence() {
-      // Remove polygon
+      // Remove polygon if any
       if (safeZonePolygon) {
         map.removeLayer(safeZonePolygon);
         safeZonePolygon = null;
       }
+      safeZoneHull = null;
 
-      // Remove each green marker from the map
-      boundaryMarkers.forEach(marker => {
-        map.removeLayer(marker);
-      });
-      boundaryMarkers.length = 0; // empty the array
+      // Remove green markers
+      boundaryMarkers.forEach(m => map.removeLayer(m));
+      boundaryMarkers.length = 0;
 
-      // Clear boundary coords
+      // Clear boundary points
       boundaryPoints.length = 0;
 
       // Reset
@@ -246,30 +258,30 @@
       document.getElementById('startGeofenceBtn').disabled = false;
       document.getElementById('finishGeofenceBtn').disabled = true;
       document.getElementById('clearGeofenceBtn').disabled = true;
-      window.emergencyTriggered = false; // reset so we can trigger SOS again if needed
+      window.emergencyTriggered = false;
     }
 
-    // Continuously watch user location
     function watchUserPosition() {
       if (navigator.geolocation) {
         navigator.geolocation.watchPosition(
-          (position) => {
-            const lat = position.coords.latitude;
-            const lng = position.coords.longitude;
+          (pos) => {
+            const lat = pos.coords.latitude;
+            const lng = pos.coords.longitude;
             const currentLatLng = [lat, lng];
 
-            // Update or create user marker
+            // Update user marker
             if (userMarker) {
               userMarker.setLatLng(currentLatLng);
             } else {
               userMarker = L.marker(currentLatLng).addTo(map);
             }
 
-            // Check if inside polygon
-            if (safeZonePolygon) {
+            // If we have a hull, check if inside
+            if (safeZoneHull) {
+              // Convert user's location to a Turf point
               const pt = turf.point([lng, lat]);
-              const poly = turf.polygon([boundaryPoints]);
-              const inside = turf.booleanPointInPolygon(pt, poly);
+              // Check if inside the polygon
+              const inside = turf.booleanPointInPolygon(pt, safeZoneHull);
 
               const statusEl = document.getElementById("status");
               if (inside) {
@@ -295,23 +307,18 @@
       }
     }
 
-    // Trigger SOS alert if user goes outside
     function triggerEmergencySOS() {
-      // Prevent multiple alerts
       if (!window.emergencyTriggered) {
         window.emergencyTriggered = true;
         alert("Emergency SOS! You have left the safe zone.\nNotifying emergency contacts...");
-
-        // Simulate sending alert to emergency contacts
-        // In a real app, you could:
-        // 1) Send an SMS via an API (like Twilio)
-        // 2) Make a phone call
+        // In a real app, you might:
+        // 1) Send an SMS via Twilio
+        // 2) Dial a number: window.location.href = "tel:998334567"
         // 3) Show a push notification
         console.log("Sending alert to Daughter, Caregiver, Son...");
       }
     }
 
-    // Button Handlers
     function startSettingGeofence() {
       isSettingGeofence = true;
       document.getElementById('startGeofenceBtn').disabled = true;
@@ -322,7 +329,7 @@
     window.addEventListener("DOMContentLoaded", () => {
       initMap();
 
-      // Attach event listeners to buttons
+      // Button handlers
       document.getElementById('startGeofenceBtn').addEventListener('click', startSettingGeofence);
       document.getElementById('finishGeofenceBtn').addEventListener('click', finishGeofence);
       document.getElementById('clearGeofenceBtn').addEventListener('click', clearGeofence);
