@@ -59,7 +59,7 @@
       1) Click <em>“Start Setting Geofence”</em>.<br/>
       2) Tap the map to drop <span class="font-bold">green markers</span>.<br/>
       3) Once you have <span class="font-bold">4 or more</span> points, click <em>“Finish Geofence”</em>.<br/>
-      4) If you leave the safe zone, an <span class="font-bold text-red-600">Emergency SOS alert</span> is triggered, and emergency contacts are notified!
+      4) The status will immediately show if you are <span class="font-bold">in</span> or <span class="font-bold">out</span> of the zone, and turn <span class="text-green-600">green</span> or <span class="text-red-600">red</span> accordingly.
     </p>
     <button
       id="startGeofenceBtn"
@@ -213,17 +213,13 @@
       const centroid = turf.centroid(fc).geometry.coordinates; // [lng, lat]
 
       // 2) Sort boundaryPoints by angle around centroid
-      //    This ensures a proper loop with no crossing lines
       const sortedPoints = boundaryPoints.slice().sort((a, b) => {
-        // a, b are [lng, lat]
         const angleA = Math.atan2(a[1] - centroid[1], a[0] - centroid[0]);
         const angleB = Math.atan2(b[1] - centroid[1], b[0] - centroid[0]);
         return angleA - angleB;
       });
 
       // 3) Create a closed polygon ring
-      //    turf.polygon expects an array-of-arrays: [ [lng, lat], [lng, lat], ... , firstPoint ]
-      //    so we repeat the first point at the end
       const ring = [...sortedPoints, sortedPoints[0]];
 
       // 4) Build a Turf.js polygon
@@ -243,6 +239,28 @@
       isSettingGeofence = false;
       document.getElementById('startGeofenceBtn').disabled = false;
       document.getElementById('finishGeofenceBtn').disabled = true;
+
+      // ✅ Immediately check if user is in or out
+      immediateStatusCheck();
+    }
+
+    // Immediately checks user location vs. safeZone
+    function immediateStatusCheck() {
+      if (!userMarker || !safeZoneGeoJSON) return;
+
+      const { lat, lng } = userMarker.getLatLng();
+      const pt = turf.point([lng, lat]);
+      const inside = turf.booleanPointInPolygon(pt, safeZoneGeoJSON);
+      const statusEl = document.getElementById("status");
+
+      if (inside) {
+        statusEl.textContent = "In Safe-Zone";
+        statusEl.style.color = "green";
+      } else {
+        statusEl.textContent = "Out of Safe-Zone";
+        statusEl.style.color = "red";
+        triggerEmergencySOS();
+      }
     }
 
     function clearGeofence() {
@@ -266,6 +284,11 @@
       document.getElementById('finishGeofenceBtn').disabled = true;
       document.getElementById('clearGeofenceBtn').disabled = true;
       window.emergencyTriggered = false;
+
+      // Show "Loading status..." or something neutral
+      const statusEl = document.getElementById("status");
+      statusEl.textContent = "Loading status...";
+      statusEl.style.color = "black";
     }
 
     function watchUserPosition() {
@@ -274,20 +297,17 @@
           (pos) => {
             const lat = pos.coords.latitude;
             const lng = pos.coords.longitude;
-            const currentLatLng = [lat, lng];
 
             // Update user marker
             if (userMarker) {
-              userMarker.setLatLng(currentLatLng);
+              userMarker.setLatLng([lat, lng]);
             } else {
-              userMarker = L.marker(currentLatLng).addTo(map);
+              userMarker = L.marker([lat, lng]).addTo(map);
             }
 
             // If we have a polygon, check if inside
             if (safeZoneGeoJSON) {
-              // Convert user's location to a Turf point
               const pt = turf.point([lng, lat]);
-              // Check if inside the polygon
               const inside = turf.booleanPointInPolygon(pt, safeZoneGeoJSON);
 
               const statusEl = document.getElementById("status");
