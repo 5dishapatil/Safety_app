@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Safety Zone App</title>
-  <!-- Tailwind CSS -->
+  <title>Friendly Safety Zone App</title>
+  <!-- Tailwind CSS (for styling) -->
   <script src="https://cdn.tailwindcss.com"></script>
   <!-- Leaflet CSS -->
   <link
@@ -14,7 +14,11 @@
     crossorigin=""
   />
   <style>
-    /* Basic styling for contact buttons */
+    /* Make sure the map has a set height */
+    #map {
+      width: 100%;
+      height: 400px;
+    }
     .contact-common {
       display: inline-flex;
       flex-direction: column;
@@ -32,11 +36,6 @@
     .contact-common:hover {
       background-color: #3b82f6;
     }
-    /* Map container must have a set height */
-    #map {
-      width: 100%;
-      height: 400px;
-    }
   </style>
 </head>
 <body class="flex flex-col min-h-screen font-sans bg-gradient-to-br from-white to-purple-400 text-gray-800">
@@ -44,32 +43,58 @@
   <!-- Header -->
   <div class="header text-center w-full bg-gradient-to-r from-blue-400 to-purple-500 text-white p-6 shadow-lg">
     <div class="header-title inline-flex items-center justify-center gap-2">
-      <!-- Location icon beside Eldora -->
       <img
         src="https://cdn-icons-png.flaticon.com/512/0/619.png"
         alt="Location Icon"
         class="w-6 h-6"
       />
-      <h1 class="text-black text-3xl m-0">Eldora - Safety Zone</h1>
+      <h1 class="text-black text-3xl m-0">Eldora - Friendly Safety Zone</h1>
     </div>
   </div>
 
-  <!-- Location Section -->
-  <div class="location-section text-center p-4 pb-0">
-    <h2 class="text-4xl mb-4">Current Location & Geofence</h2>
-    <!-- The map container -->
-    <div id="map" class="mx-auto border-2 border-gray-300 rounded-md overflow-hidden"></div>
+  <!-- Instructions & Buttons -->
+  <div class="p-4 text-center bg-neutral-100">
+    <p class="mb-2">
+      <strong>Instructions:</strong><br/>
+      1) Click <em>“Start Setting Geofence”</em>.<br/>
+      2) Tap the map to drop <span class="font-bold">green markers</span>.<br/>
+      3) Once you have <span class="font-bold">4 or more</span> points, click <em>“Finish Geofence”</em>.<br/>
+      4) If you leave the safe zone, an <span class="font-bold text-red-600">Emergency SOS alert</span> is triggered!
+    </p>
+    <button
+      id="startGeofenceBtn"
+      class="px-4 py-2 bg-green-500 text-white rounded-md hover:bg-green-600 mr-2"
+    >
+      Start Setting Geofence
+    </button>
+    <button
+      id="finishGeofenceBtn"
+      class="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 mr-2"
+      disabled
+    >
+      Finish Geofence
+    </button>
+    <button
+      id="clearGeofenceBtn"
+      class="px-4 py-2 bg-red-500 text-white rounded-md hover:bg-red-600"
+      disabled
+    >
+      Clear Geofence
+    </button>
   </div>
 
-  <!-- Status Text -->
+  <!-- Map & Status -->
+  <div class="location-section text-center p-4 pb-0">
+    <h2 class="text-4xl mb-4">Map & Geofence</h2>
+    <div id="map" class="mx-auto border-2 border-gray-300 rounded-md overflow-hidden"></div>
+  </div>
   <div id="status" class="status text-center text-lg font-bold my-5">
     Loading status...
   </div>
 
-  <!-- Bottom Blue Box -->
+  <!-- Contacts -->
   <div class="bottom-container bg-neutral-200 p-5 mt-auto text-center">
     <div class="contacts flex flex-wrap justify-center gap-5">
-      <!-- Daughter -->
       <a href="tel:998334567" class="contact-item contact-common">
         <div class="contact-text flex items-center gap-1">
           <img
@@ -81,8 +106,6 @@
         </div>
         <span>998334567</span>
       </a>
-
-      <!-- Caregiver -->
       <a href="tel:912345678" class="contact-item contact-common">
         <div class="contact-text flex items-center gap-1">
           <img
@@ -94,8 +117,6 @@
         </div>
         <span>912345678</span>
       </a>
-
-      <!-- Son -->
       <a href="tel:876453219" class="contact-item contact-common">
         <div class="contact-text flex items-center gap-1">
           <img
@@ -121,14 +142,15 @@
 
   <script>
     let map, userMarker, safeZonePolygon;
-    const boundaryPoints = []; // Will store user-clicked points (lng, lat)
-    const minBoundaryPoints = 4; // Need at least 4 points to form a polygon
+    let isSettingGeofence = false; // Controls whether clicks add geofence points
+    const boundaryPoints = []; // store [lng, lat]
+    const minBoundaryPoints = 4; // Need 4 to form a polygon
 
+    // Initialize the map
     function initMap() {
-      // Default location if geolocation fails
-      const defaultCoords = [37.7749, -122.4194]; // San Francisco
+      // Default coords if geolocation fails
+      const defaultCoords = [37.7749, -122.4194]; // SF
 
-      // Initialize Leaflet map
       map = L.map('map').setView(defaultCoords, 15);
 
       // Add OSM tile layer
@@ -136,15 +158,13 @@
         attribution: '&copy; OpenStreetMap contributors'
       }).addTo(map);
 
-      // Try to get user's location
+      // Attempt to get user location once
       if (navigator.geolocation) {
         navigator.geolocation.getCurrentPosition(
-          (position) => {
-            const lat = position.coords.latitude;
-            const lng = position.coords.longitude;
+          (pos) => {
+            const lat = pos.coords.latitude;
+            const lng = pos.coords.longitude;
             map.setView([lat, lng], 15);
-
-            // Place initial user marker
             userMarker = L.marker([lat, lng]).addTo(map)
               .bindPopup("Your Location").openPopup();
           },
@@ -152,22 +172,22 @@
             console.log("Geolocation not allowed or not available.");
           }
         );
-      } else {
-        console.log("Geolocation is not supported by this browser.");
       }
 
-      // Listen for map clicks to add boundary points
+      // Listen for map clicks, but only add points if isSettingGeofence = true
       map.on('click', (e) => {
-        addBoundaryPoint(e.latlng);
+        if (isSettingGeofence) {
+          addBoundaryPoint(e.latlng);
+        }
       });
 
-      // Continuously watch user position
+      // Continuously watch user location for safe-zone checks
       watchUserPosition();
     }
 
-    // Add a boundary point (marker + store coords)
+    // Add a boundary point
     function addBoundaryPoint(latlng) {
-      // Add green marker for boundary point
+      // Show a green marker
       L.marker(latlng, {
         icon: L.icon({
           iconUrl: "https://maps.google.com/mapfiles/ms/icons/green-dot.png",
@@ -176,31 +196,47 @@
         })
       }).addTo(map);
 
-      // Store in [lng, lat] format for Turf.js
       boundaryPoints.push([latlng.lng, latlng.lat]);
 
-      // If we have enough points, draw/update the polygon
-      if (boundaryPoints.length >= minBoundaryPoints) {
-        updatePolygon();
-      }
+      // If we have 1 or more points, allow finishing or clearing
+      document.getElementById('finishGeofenceBtn').disabled = boundaryPoints.length < minBoundaryPoints;
+      document.getElementById('clearGeofenceBtn').disabled = boundaryPoints.length === 0;
     }
 
-    // Create or update the polygon from boundaryPoints
-    function updatePolygon() {
-      // Remove old polygon if it exists
+    // Draw the polygon once the user clicks "Finish Geofence"
+    function finishGeofence() {
+      // Remove old polygon if any
       if (safeZonePolygon) {
         map.removeLayer(safeZonePolygon);
       }
 
-      // Convert boundaryPoints to Leaflet-friendly format [lat, lng]
+      // Convert boundaryPoints to Leaflet latlngs: [lat, lng]
       const latlngs = boundaryPoints.map(coord => [coord[1], coord[0]]);
 
-      // Draw polygon in red
+      // Create a polygon
       safeZonePolygon = L.polygon(latlngs, {
         color: 'red',
         fillColor: 'red',
         fillOpacity: 0.2
       }).addTo(map);
+
+      // Stop setting geofence
+      isSettingGeofence = false;
+      document.getElementById('startGeofenceBtn').disabled = false;
+      document.getElementById('finishGeofenceBtn').disabled = true;
+    }
+
+    // Clear all boundary points and polygon
+    function clearGeofence() {
+      boundaryPoints.length = 0; // empty the array
+      if (safeZonePolygon) {
+        map.removeLayer(safeZonePolygon);
+        safeZonePolygon = null;
+      }
+      isSettingGeofence = false;
+      document.getElementById('startGeofenceBtn').disabled = false;
+      document.getElementById('finishGeofenceBtn').disabled = true;
+      document.getElementById('clearGeofenceBtn').disabled = true;
     }
 
     // Continuously watch user location
@@ -212,21 +248,20 @@
             const lng = position.coords.longitude;
             const currentLatLng = [lat, lng];
 
-            // Update user marker
+            // Update or create user marker
             if (userMarker) {
               userMarker.setLatLng(currentLatLng);
             } else {
               userMarker = L.marker(currentLatLng).addTo(map);
             }
 
-            // If polygon exists, check if inside
+            // Check if inside polygon
             if (safeZonePolygon) {
-              const pt = turf.point([lng, lat]); // [lng, lat] for Turf
-              const polygon = turf.polygon([boundaryPoints]); // boundaryPoints is [[lng, lat], ...]
+              const pt = turf.point([lng, lat]);
+              const poly = turf.polygon([boundaryPoints]);
+              const inside = turf.booleanPointInPolygon(pt, poly);
 
-              const inside = turf.booleanPointInPolygon(pt, polygon);
               const statusEl = document.getElementById("status");
-
               if (inside) {
                 statusEl.textContent = "In Safe-Zone";
                 statusEl.style.color = "green";
@@ -239,8 +274,9 @@
           },
           (error) => {
             console.log("Error watching position:", error);
-            document.getElementById("status").textContent = "Location access denied!";
-            document.getElementById("status").style.color = "red";
+            const statusEl = document.getElementById("status");
+            statusEl.textContent = "Location access denied!";
+            statusEl.style.color = "red";
           },
           { enableHighAccuracy: true, maximumAge: 10000 }
         );
@@ -249,19 +285,32 @@
       }
     }
 
-    // Emergency SOS trigger
+    // Trigger SOS alert if user goes outside
     function triggerEmergencySOS() {
-      // Prevent multiple alerts
       if (!window.emergencyTriggered) {
         window.emergencyTriggered = true;
         alert("Emergency SOS! You have left the safe zone. Calling emergency contacts...");
-        // Here, you could programmatically dial phone numbers or send an SMS.
-        // e.g. window.location.href = "tel:998334567";
+        // Optionally dial a number:
+        // window.location.href = "tel:998334567";
       }
     }
 
-    // Initialize the map on page load
-    window.addEventListener("DOMContentLoaded", initMap);
+    // Button Handlers
+    function startSettingGeofence() {
+      isSettingGeofence = true;
+      document.getElementById('startGeofenceBtn').disabled = true;
+      document.getElementById('finishGeofenceBtn').disabled = boundaryPoints.length < minBoundaryPoints;
+      document.getElementById('clearGeofenceBtn').disabled = false;
+    }
+
+    window.addEventListener("DOMContentLoaded", () => {
+      initMap();
+
+      // Attach event listeners to buttons
+      document.getElementById('startGeofenceBtn').addEventListener('click', startSettingGeofence);
+      document.getElementById('finishGeofenceBtn').addEventListener('click', finishGeofence);
+      document.getElementById('clearGeofenceBtn').addEventListener('click', clearGeofence);
+    });
   </script>
 </body>
 </html>
