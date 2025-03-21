@@ -4,15 +4,13 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Friendly Safety Zone App</title>
-  <!-- Tailwind CSS (for styling) -->
+  <!-- Tailwind CSS (CDN) -->
   <script src="https://cdn.tailwindcss.com"></script>
 
-  <!-- Leaflet CSS with correct SRI -->
+  <!-- Leaflet CSS (no SRI) -->
   <link
     rel="stylesheet"
     href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-    integrity="sha256-/vEmmDbbV4ROgZm9ZhBuqgkBO5f6TKS3bZ8mz2VLN3M="
-    crossorigin=""
   />
 
   <style>
@@ -133,14 +131,9 @@
     </div>
   </div>
 
-  <!-- Leaflet JS with correct SRI -->
-  <script
-    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-    integrity="sha256-XQ/Vcr9f+oC0hIZKezsN6hI4rCkq1J2wRBgdXLM3R4c="
-    crossorigin=""
-  ></script>
-
-  <!-- Turf.js for point-in-polygon checking (no SRI available) -->
+  <!-- Leaflet JS (no SRI) -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <!-- Turf.js (no SRI) -->
   <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
 
   <script>
