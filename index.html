@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Friendly Safety Zone App</title>
+  <title>Friendly Safety Zone App - Sorted Polygon</title>
   <!-- Tailwind CSS (CDN) -->
   <script src="https://cdn.tailwindcss.com"></script>
 
@@ -139,7 +139,7 @@
   <script>
     let map, userMarker;
     let safeZonePolygon = null;      // Leaflet polygon layer
-    let safeZoneHull = null;         // Turf.js polygon geometry (for inside checks)
+    let safeZoneGeoJSON = null;      // Turf.js polygon geometry
     let isSettingGeofence = false;   // Are we currently adding points?
     const boundaryPoints = [];       // [ [lng, lat], ... ]
     const boundaryMarkers = [];      // references to green markers
@@ -204,29 +204,36 @@
         map.removeLayer(safeZonePolygon);
         safeZonePolygon = null;
       }
-      safeZoneHull = null;
+      safeZoneGeoJSON = null;
 
-      // Build a Turf.js feature collection from boundaryPoints
-      const pointFeatures = boundaryPoints.map(coords => turf.point(coords));
-      const fc = turf.featureCollection(pointFeatures);
+      // 1) Find the centroid of all clicked points
+      const fc = turf.featureCollection(
+        boundaryPoints.map((coords) => turf.point(coords))
+      );
+      const centroid = turf.centroid(fc).geometry.coordinates; // [lng, lat]
 
-      // Create a convex hull polygon from those points
-      const hull = turf.convex(fc);
+      // 2) Sort boundaryPoints by angle around centroid
+      //    This ensures a proper loop with no crossing lines
+      const sortedPoints = boundaryPoints.slice().sort((a, b) => {
+        // a, b are [lng, lat]
+        const angleA = Math.atan2(a[1] - centroid[1], a[0] - centroid[0]);
+        const angleB = Math.atan2(b[1] - centroid[1], b[0] - centroid[0]);
+        return angleA - angleB;
+      });
 
-      if (!hull) {
-        alert("Could not form a polygon. Make sure you have at least 4 points.");
-        return;
-      }
+      // 3) Create a closed polygon ring
+      //    turf.polygon expects an array-of-arrays: [ [lng, lat], [lng, lat], ... , firstPoint ]
+      //    so we repeat the first point at the end
+      const ring = [...sortedPoints, sortedPoints[0]];
 
-      // Save hull geometry for later "inside polygon" checks
-      safeZoneHull = hull; // We'll use this in watchPosition
+      // 4) Build a Turf.js polygon
+      safeZoneGeoJSON = turf.polygon([ring]);
 
-      // Convert hull's coordinates to Leaflet [lat, lng] format
-      // hull.geometry.coordinates is [ [ [lng, lat], [lng, lat], ... ] ]
-      const hullCoords = hull.geometry.coordinates[0].map(([lng, lat]) => [lat, lng]);
+      // 5) Convert to Leaflet coords [lat, lng] for drawing
+      const latlngs = ring.map(([lng, lat]) => [lat, lng]);
 
-      // Draw the polygon in Leaflet
-      safeZonePolygon = L.polygon(hullCoords, {
+      // 6) Draw polygon on the map
+      safeZonePolygon = L.polygon(latlngs, {
         color: 'red',
         fillColor: 'red',
         fillOpacity: 0.2
@@ -244,7 +251,7 @@
         map.removeLayer(safeZonePolygon);
         safeZonePolygon = null;
       }
-      safeZoneHull = null;
+      safeZoneGeoJSON = null;
 
       // Remove green markers
       boundaryMarkers.forEach(m => map.removeLayer(m));
@@ -276,12 +283,12 @@
               userMarker = L.marker(currentLatLng).addTo(map);
             }
 
-            // If we have a hull, check if inside
-            if (safeZoneHull) {
+            // If we have a polygon, check if inside
+            if (safeZoneGeoJSON) {
               // Convert user's location to a Turf point
               const pt = turf.point([lng, lat]);
               // Check if inside the polygon
-              const inside = turf.booleanPointInPolygon(pt, safeZoneHull);
+              const inside = turf.booleanPointInPolygon(pt, safeZoneGeoJSON);
 
               const statusEl = document.getElementById("status");
               if (inside) {
